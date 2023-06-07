@@ -1,0 +1,4 @@
+*.log
+eth-genesis.json
+chain-data/*
+keys/*
