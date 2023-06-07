@@ -186,26 +186,26 @@ node index.js > nodejs.log 2>&1 &
 sleep 0.5
 
 echo "check gas price"
-curl http://127.0.0.1:18888 -X POST -H "Accept: application/json" -H "Content-Type: application/json" --data '{"method":"eth_gasPrice","params":[],"id":1,"jsonrpc":"2.0"}' | jq
+curl http://127.0.0.1:18888 -s -X POST -H "Accept: application/json" -H "Content-Type: application/json" --data '{"method":"eth_gasPrice","params":[],"id":1,"jsonrpc":"2.0"}' | jq
 
 cd ..
 SIGNED_TRX=$(get_signed_eth_trx $ETH_PUB_KEY $ETH_PUB_KEY 1 '' 0 $ETH_PRIV_KEY)
 echo "send raw eth transaction $SIGNED_TRX"
-curl http://127.0.0.1:18888 -X POST -H "Accept: application/json" -H "Content-Type: application/json" --data "{\"method\":\"eth_sendRawTransaction\",\"params\":[\"0x${SIGNED_TRX}\"],\"id\":1,\"jsonrpc\":\"2.0\"}" | jq
+curl http://127.0.0.1:18888 -s -X POST -H "Accept: application/json" -H "Content-Type: application/json" --data "{\"method\":\"eth_sendRawTransaction\",\"params\":[\"0x${SIGNED_TRX}\"],\"id\":1,\"jsonrpc\":\"2.0\"}" | jq
 
 echo "check ethereum account balance"
 cleos get table evmevmevmevm evmevmevmevm account | jq
 
 SIGNED_TRX=$(get_signed_eth_trx $ETH_PUB_KEY '' 0 $ETH_STORAGE_CONTRACT 1 $ETH_PRIV_KEY)
 echo "send raw eth contract transaction $SIGNED_TRX"
-curl http://127.0.0.1:18888 -X POST -H "Accept: application/json" -H "Content-Type: application/json" --data "{\"method\":\"eth_sendRawTransaction\",\"params\":[\"0x${SIGNED_TRX}\"],\"id\":1,\"jsonrpc\":\"2.0\"}" | jq
+curl http://127.0.0.1:18888 -s -X POST -H "Accept: application/json" -H "Content-Type: application/json" --data "{\"method\":\"eth_sendRawTransaction\",\"params\":[\"0x${SIGNED_TRX}\"],\"id\":1,\"jsonrpc\":\"2.0\"}" | jq
 
 echo "ethereum account balance" 
 cleos get table evmevmevmevm evmevmevmevm account | jq
 
 SIGNED_TRX=$(get_signed_eth_trx $ETH_PUB_KEY '0x51a97d86ae7c83f050056f03ebbe451001046764' 0 6057361d000000000000000000000000000000000000000000000000000000000000007b 2 $ETH_PRIV_KEY)
 echo "send call store method transaction $SIGNED_TRX"
-curl http://127.0.0.1:18888 -X POST -H "Accept: application/json" -H "Content-Type: application/json" --data "{\"method\":\"eth_sendRawTransaction\",\"params\":[\"0x${SIGNED_TRX}\"],\"id\":1,\"jsonrpc\":\"2.0\"}" | jq
+curl http://127.0.0.1:18888 -s -X POST -H "Accept: application/json" -H "Content-Type: application/json" --data "{\"method\":\"eth_sendRawTransaction\",\"params\":[\"0x${SIGNED_TRX}\"],\"id\":1,\"jsonrpc\":\"2.0\"}" | jq
 
 sleep 0.5
 
@@ -220,38 +220,51 @@ cleos get table evmevmevmevm 1 storage | jq
 
 echo "eth config:"
 cleos get table evmevmevmevm evmevmevmevm config | jq
-
-echo "block 10:"
-cleos get block 10 | jq
-
 BLOCK_TIME=$(cleos get table evmevmevmevm evmevmevmevm config | jq .rows[0].genesis_time)
-BLOCK_SECONDS=$(python3 -c "from datetime import datetime; print(hex(int((datetime.strptime($BLOCK_TIME,\"%Y-%m-%dT%H:%M:%S\")-datetime(1970,1,1)).total_seconds())))" )
-BLOCK_HASH=$(cleos get block 10 | jq .id | tr -d '"')
+HEX_BLOCK_SECONDS=$(python3 -c "from datetime import datetime; print(hex(int((datetime.strptime($BLOCK_TIME,\"%Y-%m-%dT%H:%M:%S\")-datetime(1970,1,1)).total_seconds())))" )
+BLOCK_SECONDS=$(python3 -c "from datetime import datetime; print(int((datetime.strptime($BLOCK_TIME,\"%Y-%m-%dT%H:%M:%S\")-datetime(1970,1,1)).total_seconds()))" )
+
+for i in $(seq 10 15)
+do
+    echo "i = $i"
+    CUR_TIMESTAMP=$(cleos get block $i | jq .timestamp)
+    echo "checking block $i timestamp = ${CUR_TIMESTAMP}"
+    CUR_BLOCK_SECONDS=$(python3 -c "from datetime import datetime; print(int((datetime.strptime(${CUR_TIMESTAMP},\"%Y-%m-%dT%H:%M:%S.%f\")-datetime(1970,1,1)).total_seconds()))" )
+    echo "CUR_BLOCK_SECONDS = $CUR_BLOCK_SECONDS"
+    if [ "$CUR_BLOCK_SECONDS" -eq "$BLOCK_SECONDS" ]
+    then
+        break
+    fi
+done
+
+BLOCK_HASH=$(cleos get block $i | jq .id | tr -d '"')
 
 mkdir -p ./chain-data
 # 0x56e4adc95b92b720 is hex of raw evmevmevmevm name
-cat ./eth-genesis-template.json | sed -e "s/BLOCK_ID/${BLOCK_HASH}/g" | sed -e "s/NONCE_VAL/0x56e4adc95b92b720/g" | sed -e "s/TIMESTAMP_VAL/${BLOCK_SECONDS}/g" > ./eth-genesis.json
+cat ./eth-genesis-template.json | sed -e "s/BLOCK_ID/${BLOCK_HASH}/g" | sed -e "s/NONCE_VAL/0x56e4adc95b92b720/g" | sed -e "s/TIMESTAMP_VAL/${HEX_BLOCK_SECONDS}/g" > ./eth-genesis.json
 
 echo "eth genesis.json:"
 cat ./eth-genesis.json | jq
 
+echo "starting eos-evm-node..."
 eos-evm-node --chain-data ./chain-data --plugin block_conversion_plugin --plugin blockchain_plugin --nocolor 1 --verbosity=5 --genesis-json=./eth-genesis.json > eth-node.log 2>&1 &
-sleep 1
+sleep 5
+echo "starting eos-evm-rpc..."
 eos-evm-rpc --api-spec=eth,net --http-port=0.0.0.0:8881 --eos-evm-node=127.0.0.1:8080 --chaindata=./chain-data > eth-rpc.log 2>&1 &
-sleep 1
+sleep 30
 
 echo "check eth rpc"
-curl --location --request POST 'localhost:8881/' --header 'Content-Type: application/json' --data-raw '{"method":"eth_blockNumber","id":0}' | jq
+curl -sS --location --request POST 'localhost:8881/' --header 'Content-Type: application/json' --data-raw '{"method":"eth_blockNumber","id":0}' | jq
 
 echo "get block by id"
-curl --location --request POST 'localhost:8881/' --header 'Content-Type: application/json' --data-raw '{"method":"eth_getBlockByNumber","params":["0x1",true],"id":0}' | jq
+curl -sS --location --request POST 'localhost:8881/' --header 'Content-Type: application/json' --data-raw '{"method":"eth_getBlockByNumber","params":["0x1",true],"id":0}' | jq
 
 
 echo "get balance"
-curl --location --request POST 'localhost:8881/' --header 'Content-Type: application/json' --data-raw "{\"method\":\"eth_getBalance\",\"params\":[\"${ETH_PUB_KEY}\",\"latest\"],\"id\":0}" | jq
+curl -sS --location --request POST 'localhost:8881/' --header 'Content-Type: application/json' --data-raw "{\"method\":\"eth_getBalance\",\"params\":[\"${ETH_PUB_KEY}\",\"latest\"],\"id\":0}" | jq
 
 echo "check storage via evm-rpc"
-curl --location --request POST 'localhost:8881/' --header 'Content-Type: application/json' --data-raw "{\"method\":\"eth_call\",\"params\":[{\"from\":\"$(strip_hex ${ETH_PUB_KEY})\",\"to\":\"51a97d86ae7c83f050056f03ebbe451001046764\",\"data\":\"0x2e64cec1\"},\"latest\"],\"id\":11}" | jq
+curl -sS --location --request POST 'localhost:8881/' --header 'Content-Type: application/json' --data-raw "{\"method\":\"eth_call\",\"params\":[{\"from\":\"$(strip_hex ${ETH_PUB_KEY})\",\"to\":\"51a97d86ae7c83f050056f03ebbe451001046764\",\"data\":\"0x2e64cec1\"},\"latest\"],\"id\":11}" | jq
 
 # cd ./proxy
 # docker build -t evm-proxy .
