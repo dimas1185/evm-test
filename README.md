@@ -1,0 +1,2 @@
+step by step script that performs tutorial https://github.com/eosnetworkfoundation/eos-evm/blob/main/docs/local_testnet_deployment_plan.md
+some steps are corrected to make it working. block explorer and docker proxy parts skipped
